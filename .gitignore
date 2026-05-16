@@ -2,3 +2,5 @@ local-server.js
 veredas-site-upload.zip
 .DS_Store
 Thumbs.db
+admin/meta-config.php
+admin/local-config.php

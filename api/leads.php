@@ -41,22 +41,46 @@ if ($lead['nome'] === '' || $lead['telefone'] === '') {
     exit;
 }
 
-$dbHost = 'localhost';
-$dbPort = '5432';
-$dbName = 'veredas1_veredas';
-$dbUser = 'veredas1_codex';
-$dbPass = 'code1001!@#$';
+$localConfigPath = __DIR__ . '/../admin/local-config.php';
+$localConfig = is_file($localConfigPath) ? require $localConfigPath : [];
+if (!is_array($localConfig)) {
+    $localConfig = [];
+}
+
+$dbHost = $localConfig['db_host'] ?? getenv('VEREDAS_DB_HOST') ?: '127.0.0.1';
+$dbPort = $localConfig['db_port'] ?? getenv('VEREDAS_DB_PORT') ?: '5432';
+$dbName = $localConfig['db_name'] ?? getenv('VEREDAS_DB_NAME') ?: '';
+$dbUser = $localConfig['db_user'] ?? getenv('VEREDAS_DB_USER') ?: '';
+$dbPass = $localConfig['db_pass'] ?? getenv('VEREDAS_DB_PASS') ?: '';
 
 try {
     if (!extension_loaded('pdo_pgsql')) {
         throw new RuntimeException('pdo_pgsql extension is not enabled.');
     }
 
-    $dsn = "pgsql:host={$dbHost};port={$dbPort};dbname={$dbName}";
-    $pdo = new PDO($dsn, $dbUser, $dbPass, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-    ]);
+    $attempts = [
+        "pgsql:port={$dbPort};dbname={$dbName}",
+        "pgsql:host=/var/run/postgresql;port={$dbPort};dbname={$dbName}",
+        "pgsql:host=/tmp;port={$dbPort};dbname={$dbName}",
+        "pgsql:host={$dbHost};port={$dbPort};dbname={$dbName}",
+    ];
+
+    $pdo = null;
+    foreach ($attempts as $dsn) {
+        try {
+            $pdo = new PDO($dsn, $dbUser, $dbPass, [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            ]);
+            break;
+        } catch (Throwable $exception) {
+            error_log('PostgreSQL connection attempt failed: ' . $exception->getMessage());
+        }
+    }
+
+    if (!$pdo instanceof PDO) {
+        throw new RuntimeException('Could not connect to PostgreSQL.');
+    }
 
     $pdo->exec(
         "CREATE TABLE IF NOT EXISTS leads (

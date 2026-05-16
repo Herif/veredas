@@ -64,7 +64,7 @@ try {
     $leads = $stmt->fetchAll();
 } catch (Throwable $exception) {
     $leads = [];
-    $error = 'Nao foi possivel carregar os leads. Verifique se o PostgreSQL e a extensao pdo_pgsql estao ativos.';
+    $error = 'Nao foi possivel carregar os leads: ' . $exception->getMessage();
     error_log('Admin leads error: ' . $exception->getMessage());
 }
 ?>
@@ -83,6 +83,7 @@ try {
         <span>Leads</span>
       </a>
       <nav>
+        <a href="instagram.php">Instagram</a>
         <span><?= e($_SESSION['admin_email'] ?? '') ?></span>
         <a href="logout.php">Sair</a>
       </nav>

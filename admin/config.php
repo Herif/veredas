@@ -1,16 +1,22 @@
 <?php
 declare(strict_types=1);
 
-const ADMIN_EMAIL = 'admin@veredasdoaraguaia.com.br';
-const ADMIN_PASSWORD_SALT = 'beca8af2b752420210cbd3c3004c5123';
-const ADMIN_PASSWORD_HASH = '3c5471964430427745cbe02d85b22f42339686b39eabcdea5d007d1780da5027';
-const ADMIN_SESSION_TIMEOUT = 3600;
+$localConfigPath = __DIR__ . '/local-config.php';
+$localConfig = is_file($localConfigPath) ? require $localConfigPath : [];
+if (!is_array($localConfig)) {
+    $localConfig = [];
+}
 
-const DB_HOST = 'localhost';
-const DB_PORT = '5432';
-const DB_NAME = 'veredas1_veredas';
-const DB_USER = 'veredas1_codex';
-const DB_PASS = 'code1001!@#$';
+define('ADMIN_EMAIL', $localConfig['admin_email'] ?? getenv('VEREDAS_ADMIN_EMAIL') ?: 'admin@example.com');
+define('ADMIN_PASSWORD_SALT', $localConfig['admin_password_salt'] ?? getenv('VEREDAS_ADMIN_PASSWORD_SALT') ?: '');
+define('ADMIN_PASSWORD_HASH', $localConfig['admin_password_hash'] ?? getenv('VEREDAS_ADMIN_PASSWORD_HASH') ?: '');
+define('ADMIN_SESSION_TIMEOUT', (int)($localConfig['admin_session_timeout'] ?? getenv('VEREDAS_ADMIN_SESSION_TIMEOUT') ?: 3600));
+
+define('DB_HOST', $localConfig['db_host'] ?? getenv('VEREDAS_DB_HOST') ?: '127.0.0.1');
+define('DB_PORT', $localConfig['db_port'] ?? getenv('VEREDAS_DB_PORT') ?: '5432');
+define('DB_NAME', $localConfig['db_name'] ?? getenv('VEREDAS_DB_NAME') ?: '');
+define('DB_USER', $localConfig['db_user'] ?? getenv('VEREDAS_DB_USER') ?: '');
+define('DB_PASS', $localConfig['db_pass'] ?? getenv('VEREDAS_DB_PASS') ?: '');
 
 session_name('veredas_admin');
 session_start([
@@ -31,11 +37,27 @@ function db(): PDO
         throw new RuntimeException('A extensao pdo_pgsql nao esta ativa no PHP.');
     }
 
-    $dsn = 'pgsql:host=' . DB_HOST . ';port=' . DB_PORT . ';dbname=' . DB_NAME;
-    $pdo = new PDO($dsn, DB_USER, DB_PASS, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-    ]);
+    $attempts = [
+        'pgsql:port=' . DB_PORT . ';dbname=' . DB_NAME,
+        'pgsql:host=/var/run/postgresql;port=' . DB_PORT . ';dbname=' . DB_NAME,
+        'pgsql:host=/tmp;port=' . DB_PORT . ';dbname=' . DB_NAME,
+        'pgsql:host=' . DB_HOST . ';port=' . DB_PORT . ';dbname=' . DB_NAME,
+    ];
+
+    $errors = [];
+    foreach ($attempts as $dsn) {
+        try {
+            $pdo = new PDO($dsn, DB_USER, DB_PASS, [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            ]);
+            return $pdo;
+        } catch (Throwable $exception) {
+            $errors[] = $exception->getMessage();
+        }
+    }
+
+    throw new RuntimeException('Nao foi possivel conectar ao PostgreSQL. ' . implode(' | ', $errors));
 
     return $pdo;
 }
@@ -63,6 +85,32 @@ function ensure_leads_schema(): void
     $pdo->exec("ALTER TABLE leads ADD COLUMN IF NOT EXISTS status VARCHAR(40) NOT NULL DEFAULT 'Novo'");
     $pdo->exec("ALTER TABLE leads ADD COLUMN IF NOT EXISTS admin_notes TEXT");
     $pdo->exec("ALTER TABLE leads ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ");
+}
+
+function ensure_instagram_schema(): void
+{
+    $pdo = db();
+    $pdo->exec(
+        "CREATE TABLE IF NOT EXISTS instagram_posts (
+            id BIGSERIAL PRIMARY KEY,
+            title VARCHAR(180) NOT NULL,
+            creative VARCHAR(220) NOT NULL,
+            caption TEXT NOT NULL,
+            post_type VARCHAR(40) NOT NULL DEFAULT 'feed_image',
+            status VARCHAR(40) NOT NULL DEFAULT 'Rascunho',
+            meta_media_id VARCHAR(120),
+            permalink TEXT,
+            error_message TEXT,
+            published_at TIMESTAMPTZ,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ
+        )"
+    );
+    $pdo->exec("ALTER TABLE instagram_posts ADD COLUMN IF NOT EXISTS meta_media_id VARCHAR(120)");
+    $pdo->exec("ALTER TABLE instagram_posts ADD COLUMN IF NOT EXISTS permalink TEXT");
+    $pdo->exec("ALTER TABLE instagram_posts ADD COLUMN IF NOT EXISTS error_message TEXT");
+    $pdo->exec("ALTER TABLE instagram_posts ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ");
+    $pdo->exec("ALTER TABLE instagram_posts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ");
 }
 
 function e(?string $value): string
